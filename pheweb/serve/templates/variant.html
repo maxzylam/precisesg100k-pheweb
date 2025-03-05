@@ -52,6 +52,10 @@
               {% endfor %}
             {% endif %}
           {% endwith %}
+          {% if graphql_data and graphql_data.variants and graphql_data.variants[0] %}
+            {% set variant_id = graphql_data.variants[0].id %}
+            , <a href="https://genetics.opentargets.org/variant/{{ variant_id }}/associations" target="_blank">Open Targets</a>
+          {% endif %}
           <span style="font-weight:bold" id="pubmed-link"></span>
           <span style="font-weight:bold" id="clinvar-link"></span>
         </p>

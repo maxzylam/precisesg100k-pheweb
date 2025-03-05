@@ -1,4 +1,3 @@
-
 from ..load.load_utils import get_maf
 from ..utils import get_phenolist, get_gene_tuples, pad_gene, PheWebError, vep_consqeuence_category
 from .. import conf
@@ -22,6 +21,7 @@ import os
 import os.path
 import sqlite3
 from typing import Dict,Tuple,List,Any,Optional
+import requests
 
 
 bp = Blueprint('bp', __name__, template_folder='templates', static_folder='static')
@@ -115,19 +115,82 @@ def api_variant(query:str):
         resp.headers.add('Access-Control-Allow-Origin', '*')
     return resp
 
-@bp.route('/variant/<query>')
-@check_auth
-def variant_page(query:str):
+def fetch_opentargets_data(rsid):
+    """Make a GraphQL request to Open Targets Genetics API."""
+    if not rsid:
+        print("Warning: Empty rsID provided")
+        return None
+
+    url = "https://api.genetics.opentargets.org/graphql"
+    query = """
+    query SearchQuery($queryString: String!) {
+      search(queryString: $queryString) {
+        totalGenes
+        totalVariants
+        totalStudies
+        genes {
+          id
+          symbol
+        }
+        variants {
+          id
+          rsId
+          chromosome
+          position
+          refAllele
+          altAllele
+        }
+        studies {
+          studyId
+          traitReported
+          pmid
+          pubAuthor
+          pubDate
+          pubJournal
+          nInitial
+        }
+      }
+    }
+    """
+
+    payload = {
+        "operationName": "SearchQuery",
+        "variables": {"queryString": rsid},
+        "query": query,
+    }
+
+    headers = {"content-type": "application/json"}
+
     try:
-        variant = get_variant(query)
-        if variant is None:
-            die("Sorry, I couldn't find the variant {}".format(query))
-        return render_template('variant.html',
-                               variant=variant,
-                               tooltip_lztemplate=parse_utils.tooltip_lztemplate,
-        )
-    except Exception as exc:
-        die('Oh no, something went wrong', exc)
+        response = requests.post(url, json=payload, headers=headers)
+        response.raise_for_status()
+        data = response.json()
+        return data.get("data", {}).get("search", {})
+    except Exception as e:
+        print(f"GraphQL request failed: {e}")
+        return None
+
+
+@bp.route("/variant")
+@check_auth
+def variant_page():
+    variant = get_variant(request.args.get("query", ""))
+    # Extract rsID from variant data
+    rsid = None
+    if variant.get("rsids"):
+        # Split on comma in case there are multiple rsIDs and take the first one
+        rsid = variant["rsids"].split(",")[0].strip()
+
+    print(f"Found rsID: {rsid}")
+    graphql_data = fetch_opentargets_data(rsid) if rsid else None
+
+    return render_template(
+        "variant.html",
+        variant=variant,
+        graphql_data=graphql_data,
+        tooltip_lztemplate=parse_utils.tooltip_lztemplate,
+    )
+
 
 @bp.route('/api/manhattan/pheno/<phenocode>.json')
 @check_auth
@@ -459,7 +522,6 @@ def apply_caching(response):
 ### OAUTH2
 if conf.is_login_required():
     google_sign_in = GoogleSignIn(app)
-
 
     lm = LoginManager(app)
     lm.login_view = 'homepage'
