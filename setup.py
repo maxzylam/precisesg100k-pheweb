@@ -83,9 +83,11 @@ setup(
         'boltons~=20.2',
         'cffi~=1.15', # in both `setup_requires` and `install_requires` as per <https://github.com/pypa/setuptools/issues/391>
         'wget~=3.2',
-        'gevent~=21.1',
+        'gevent>=22.10.3',
         'psutil~=5.8',
         'markupsafe==2.0.1',  # flask 1.1 uses jinja 2.x which breaks with markupsafe>2.0.1.  Pinning all deps might be better.
+        'Authlib==1.5.1',
+        'python-dotenv==1.0.1',
     ],
     tests_require=[
         'pytest~=6.2',
