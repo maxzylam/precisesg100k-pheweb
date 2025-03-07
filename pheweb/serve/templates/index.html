@@ -23,15 +23,15 @@ $(function() { $('.typeahead').focus(); }); // autofocus attribute doesn't work 
       {% if not config['USE_WHITELIST'] %}
       <p>Please register to view this data.</p>
       <br>
-      <p><a class="btn-lg btn-primary" role="button" href="{{ url_for('.login_with_google') }}">Click here to register with a Google account</a></p>
+      <p><a class="btn-lg btn-primary" role="button" href="{{ url_for('.login_with_cognito') }}">Click here to register</a></p>
       {% else %}
       <p>Please log in to view this data.</p>
       <br>
-      <p><a class="btn-lg btn-primary" role="button" href="{{ url_for('.login_with_google') }}">Click here to log in with a Google account</a></p>
+      <p><a class="btn-lg btn-primary" role="button" href="{{ url_for('.login_with_cognito') }}">Click here to log in</a></p>
       <br>
       <p style="margin-bottom:0">
-        If your email address is on the list of allowed email addresses but is not connected to a Google account, please
-        <a href="https://accounts.google.com/SignUpWithoutGmail">create a Google account for it</a>.
+        If your email address is on the list of allowed email addresses but is not connected to an account, please
+        contact the administrator.
       </p>
       {% endif %}
     </div>
