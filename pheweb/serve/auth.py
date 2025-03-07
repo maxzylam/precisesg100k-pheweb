@@ -1,11 +1,17 @@
 
 from .. import conf
 
-from flask import url_for, redirect, request
+from flask import redirect, url_for, session, request, render_template
 from rauth import OAuth2Service
 
 import requests
 import json
+
+from authlib.integrations.flask_client import OAuth
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # It seems like everything is working without these two lines, and I'm not sure why: (maybe because I installed `requests[security]`?)
 # import urllib3.contrib.pyopenssl
@@ -56,3 +62,46 @@ class GoogleSignIn(object):
         me = oauth_session.get('').json()
         return (me['name'] if 'name' in me else me['email'], # SAML emails (like @umich.edu) don't have 'name'
                 me['email'])
+
+
+class CognitoAuth:
+    def __init__(self, current_app):
+        self.app = current_app
+        self.oauth = OAuth(current_app)
+        self.oauth.register(
+            name='oidc',
+            authority=os.getenv('COGNITO_AUTHORITY'),
+            client_id=os.getenv('COGNITO_CLIENT_ID'),
+            client_secret=os.getenv('COGNITO_CLIENT_SECRET'),
+            server_metadata_url=os.getenv('COGNITO_METADATA_URL'),
+            client_kwargs={'scope': os.getenv('COGNITO_SCOPE', 'email openid phone')}
+        )
+    def login_page(self, error=None):
+        """Render the login page"""
+        return render_template('login.html', error=error)
+
+    def authorize(self):
+        redirect_uri = url_for('bp.oauth_callback_cognito', _external=True, _scheme='https')
+        print(f"Redirected to {redirect_uri}")
+        return self.oauth.oidc.authorize_redirect(redirect_uri)
+
+    def callback(self):
+        try:
+            # Get the token
+            token = self.oauth.oidc.authorize_access_token()
+            
+            # Get user info from the token
+            userinfo = token.get('userinfo', {})
+            email = userinfo.get('email', 'unknown@example.com')
+            name = userinfo.get('name', 'User')
+            
+            # Set session variables to indicate successful login
+            session['logged_in'] = True
+            session['user_email'] = email
+            session['user_name'] = name
+            
+            return (name, email)
+            
+        except Exception as e:
+            print(f"Error in Cognito callback: {e}")
+            return (None, None)

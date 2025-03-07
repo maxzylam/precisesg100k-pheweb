@@ -33,9 +33,6 @@ def set_override(key:str, value:Any) -> None:
     elif key == 'login':
         if not isinstance(value, dict): raise Exception(value)
         overrides['login'] = True
-        overrides['login_GOOGLE_LOGIN_CLIENT_ID'] = value['GOOGLE_LOGIN_CLIENT_ID']
-        overrides['login_GOOGLE_LOGIN_CLIENT_SECRET'] = value['GOOGLE_LOGIN_CLIENT_SECRET']
-        overrides['login_allowlist'] = [email.lower() for email in value.get('whitelist', [])]
     elif key in ['extra_per_variant_fields', 'extra_per_assoc_fields', 'extra_per_pheno_fields', 'null_values']:
         print("Ignoring config for {} because it's not implemented.".format(key))
         #raise PheWebError("parse_utils customization isn't implemented yet.")

@@ -6,3 +6,4 @@ dist
 pheweb/load/cffi/_x*
 .eggs
 .venv
+.env

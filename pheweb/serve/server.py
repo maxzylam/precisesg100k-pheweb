@@ -5,11 +5,11 @@ from .. import parse_utils
 from ..file_utils import get_filepath, get_pheno_filepath, VariantFileReader
 from .server_utils import get_variant, get_random_page, get_pheno_region, relative_redirect
 from .autocomplete import Autocompleter
-from .auth import GoogleSignIn
+from .auth import CognitoAuth
 from ..version import version as pheweb_version
 from ..import weetabix
 
-from flask import Flask, jsonify, render_template, request, abort, flash, send_from_directory, send_file, session, url_for, Blueprint
+from flask import Flask, jsonify, render_template, request, abort, flash, send_from_directory, send_file, session, url_for, Blueprint, current_app
 from flask_compress import Compress
 from flask_login import LoginManager, UserMixin, login_user, logout_user, current_user
 
@@ -22,7 +22,9 @@ import os.path
 import sqlite3
 from typing import Dict,Tuple,List,Any,Optional
 import requests
+from dotenv import load_dotenv
 
+load_dotenv()
 
 bp = Blueprint('bp', __name__, template_folder='templates', static_folder='static')
 app = Flask(__name__)
@@ -78,7 +80,7 @@ def check_auth(func):
         if current_user.is_anonymous:
             print('unauthorized user visited {!r}'.format(request.path))
             session['original_destination'] = request.path
-            return relative_redirect(url_for('.get_authorized'))
+            return relative_redirect(url_for('.login_page'))
         print('{} visited {!r}'.format(current_user.email, request.path))
         assert email_is_allowed()
         return func(*args, **kwargs)
@@ -171,25 +173,57 @@ def fetch_opentargets_data(rsid):
         return None
 
 
-@bp.route("/variant")
+@bp.route('/variant/<query>')
 @check_auth
-def variant_page():
-    variant = get_variant(request.args.get("query", ""))
-    # Extract rsID from variant data
-    rsid = None
-    if variant.get("rsids"):
-        # Split on comma in case there are multiple rsIDs and take the first one
-        rsid = variant["rsids"].split(",")[0].strip()
+def variant_page(query:str):
+    try:
+        variant = get_variant(query)
+        if variant is None:
+            die("Sorry, I couldn't find the variant {}".format(query))
+        
+        # Extract rsID from variant data
+        rsid = None
+        if variant.get("rsids"):
+            # Split on comma in case there are multiple rsIDs and take the first one
+            rsid = variant["rsids"].split(",")[0].strip()
 
-    print(f"Found rsID: {rsid}")
-    graphql_data = fetch_opentargets_data(rsid) if rsid else None
+        print(f"Found rsID: {rsid}")
+        graphql_data = fetch_opentargets_data(rsid) if rsid else None
+        
+        return render_template('variant.html',
+                               variant=variant,
+                               graphql_data=graphql_data,
+                               tooltip_lztemplate=parse_utils.tooltip_lztemplate,
+        )
+    except Exception as exc:
+        die('Oh no, something went wrong', exc)
 
-    return render_template(
-        "variant.html",
-        variant=variant,
-        graphql_data=graphql_data,
-        tooltip_lztemplate=parse_utils.tooltip_lztemplate,
-    )
+# Keep a query parameter version for backward compatibility with your new implementation
+@bp.route('/variant')
+@check_auth
+def variant_page_query():
+    query = request.args.get("query", "")
+    try:
+        variant = get_variant(query)
+        if variant is None:
+            die("Sorry, I couldn't find the variant {}".format(query))
+        
+        # Extract rsID from variant data
+        rsid = None
+        if variant.get("rsids"):
+            # Split on comma in case there are multiple rsIDs and take the first one
+            rsid = variant["rsids"].split(",")[0].strip()
+
+        print(f"Found rsID: {rsid}")
+        graphql_data = fetch_opentargets_data(rsid) if rsid else None
+        
+        return render_template('variant.html',
+                               variant=variant,
+                               graphql_data=graphql_data,
+                               tooltip_lztemplate=parse_utils.tooltip_lztemplate,
+        )
+    except Exception as exc:
+        die('Oh no, something went wrong', exc)
 
 
 @bp.route('/api/manhattan/pheno/<phenocode>.json')
@@ -490,10 +524,12 @@ else:
 
 
 @bp.route('/')
+@check_auth
 def homepage():
     return render_template('index.html')
 
 @bp.route('/about')
+@check_auth
 def about_page():
     return render_template('about.html')
 
@@ -521,7 +557,7 @@ def apply_caching(response):
 
 ### OAUTH2
 if conf.is_login_required():
-    google_sign_in = GoogleSignIn(app)
+    cognito_auth = CognitoAuth(app)
 
     lm = LoginManager(app)
     lm.login_view = 'homepage'
@@ -546,55 +582,74 @@ if conf.is_login_required():
     @bp.route('/logout')
     @check_auth
     def logout():
+        if "session" in session:
+            session.pop("session")
         print(current_user.email, 'logged out')
         logout_user()
-        return relative_redirect(url_for('.homepage'))
+        logout_url = os.getenv('COGNITO_LOGOUT_URL')
+        return relative_redirect(logout_url)
 
-    @bp.route('/login_with_google')
-    def login_with_google():
-        "this route is for the login button"
-        session['original_destination'] = url_for('.homepage')
-        return relative_redirect(url_for('.get_authorized'))
-
-    @bp.route('/get_authorized')
-    def get_authorized():
-        "This route tries to be clever and handle lots of situations."
-        if current_user.is_anonymous:
-            return google_sign_in.authorize()
-        else:
-            if 'original_destination' in session:
-                orig_dest = session['original_destination']
-                del session['original_destination'] # We don't want old destinations hanging around.  If this leads to problems with re-opening windows, disable this line.
-            else:
-                orig_dest = url_for('.homepage')
-            return relative_redirect(orig_dest)
-
-    @bp.route('/callback/google')
-    def oauth_callback_google():
+    # Add this route to display the login page
+    @bp.route('/login')
+    def login_page():
+        """Display the login page"""
+        # If user is already logged in, redirect to homepage
         if not current_user.is_anonymous:
             return relative_redirect(url_for('.homepage'))
+        # Otherwise show the login page
+        return cognito_auth.login_page()
+
+
+    # Update the get_authorized route
+    @bp.route('/auth')
+    def get_authorized():
+        """This route is for the login process"""
+        # If user is already logged in, redirect to their original destination
+        if not current_user.is_anonymous:
+            original_destination = session.pop('original_destination', url_for('.homepage'))
+            return relative_redirect(original_destination)
+        return cognito_auth.login_page()
+
+
+    @bp.route('/login_with_cognito')
+    def login_with_cognito():
+        """This route is for the login button on the login page"""
+        if 'original_destination' not in session:
+            session['original_destination'] = url_for('.homepage')
+        return relative_redirect(url_for('.authorize'))
+
+
+    @bp.route('/authorize')
+    def authorize():
+        """This route handles the authorization with Cognito"""
+        return cognito_auth.authorize()
+            
+            
+    @bp.route('/callback/cognito')
+    def oauth_callback_cognito():
+        if not current_user.is_anonymous:
+            # If user is already logged in, redirect to their original destination or homepage
+            original_destination = session.pop('original_destination', url_for('.homepage'))
+            return relative_redirect(original_destination)
+            
         try:
-            username, email = google_sign_in.callback() # oauth.callback reads request.args.
+            username, email = cognito_auth.callback()
         except Exception as exc:
-            print('Error in google_sign_in.callback():')
+            print('Error in cognito_auth.callback():')
             print(exc)
             print(traceback.format_exc())
-            flash('Something is wrong with authentication.  Please email pjvh@umich.edu')
+            flash('Authentication error. Please contact support.')
             return relative_redirect(url_for('.homepage'))
+        
         if email is None:
-            # I need a valid email address for my user identification
-            flash('Authentication failed by failing to get an email address.  Please email pjvh@umich.edu')
+            flash('Authentication failed - no email address received')
             return relative_redirect(url_for('.homepage'))
 
-        if not email_is_allowed(email):
-            flash('Your email, {!r}, is not in the list of allowed emails.'.format(email))
-            return relative_redirect(url_for('.homepage'))
-
-        # Log in the user, by default remembering them for their next visit.
         user = User(username, email)
         login_user(user, remember=True)
-
-        print(user.email, 'logged in')
-        return relative_redirect(url_for('.get_authorized'))
+        
+        # Redirect to the original destination after successful login
+        original_destination = session.pop('original_destination', url_for('.homepage'))
+        return relative_redirect(original_destination)
 
 app.register_blueprint(bp, url_prefix = app.config['URLPREFIX'])

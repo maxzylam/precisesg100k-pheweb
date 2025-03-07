@@ -86,6 +86,11 @@ LocusZoom.ScaleFunctions.add("effect_direction", function(parameters, input){
         .domain(unique_categories);
 
     window.variant.phenos.forEach(function(d, i) {
+        // The following block of code is a temporary fix for 
+        // stream_table not showing in the variant page
+        d.version_date = d["version (date)"];
+        delete d["version (date)"];
+
         d.phewas_code = d.phenocode;
         d.phewas_string = (d.phenostring || d.phenocode);
         d.category_name = d.category;

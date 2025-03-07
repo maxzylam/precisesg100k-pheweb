@@ -58,6 +58,11 @@
           <th>#Loci&lt;5e-8</th>
           <th>Top variant in pheno</th>
           <th>P-value</th>
+          <th>Ancestry</th>
+          <th>Phenotype Source</th>
+          <th>Variable Type</th>
+          <th>Version</th>
+          <th>Heritability</th>
           <th class="nearest_genes_col">Nearest Gene(s)</th>
         </tr>
       </thead>
@@ -86,6 +91,11 @@
         <% if (h.rsids) { %>(<%= h.rsids.replace(/,/g, ', ') %>)<% } %>
     </a></td>
     <td><%= (h.pval == 0) ? '≤1e-320' : h.pval.toExponential(1) %></td>
+    <td><%= h.ancestry %></td>
+    <td><%= h.phenotype_source %></td>
+    <td><%= h.variable_type %></td>
+    <td><%= h.version %></td>
+    <td><%= h.heritabality %></td>
     <td class="nearest_genes_col">
       <% var ngs = h.nearest_genes.split(","); ngs.forEach(function(g, i) { %>
       <a style="color:black" href="{{ url_for('.region_page', phenocode='', region='').rstrip('/') }}/<%= h.phenocode %>/gene/<%= g %>?include=<%= h.chrom %>-<%= h.pos %>">
